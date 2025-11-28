@@ -110,7 +110,7 @@ if __name__ == "__main__":
     
     # 2. Train
     try:
-        predictor.train_model('data/complete.csv')
+        predictor.train_model('complete.csv')
         
         # 3. Test
         print(f"\n{'PLAYER':<20} | {'AGE':<4} | {'POS':<4} | {'PREDICTION':<10}")

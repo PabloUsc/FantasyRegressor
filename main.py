@@ -37,83 +37,159 @@ def add_background():
 
 add_background()
 
-# 2. Load Real NFL Data (Roster + Team Logos)
-@st.cache_data
-def load_data():
-    # A. Load Roster
+def calculate_age(birth_date_str):
+    """Converts YYYY-MM-DD string to Age Integer"""
+    if pd.isna(birth_date_str):
+        return 25 # Default fallback if missing
     try:
-        roster = nfl.load_rosters()
-        roster = roster.to_pandas()
-    except:
-        st.error("Failed to load NFL roster data. Check internet connection.")
-        return pd.DataFrame()
-
-    # B. Load Team Data (for Logos)
-    try:
-        teams = nfl.load_teams()
-        teams = teams.to_pandas()[['team_abbr', 'team_logo_espn']]
-    except:
-        st.error("Failed to load Team data.")
-        return pd.DataFrame()
-    
-    # C. Handle Column Name variations in nflreadpy
-    if 'full_name' in roster.columns:
-        name_col = 'full_name'
-    elif 'player_name' in roster.columns:
-        name_col = 'player_name'
-    else:
-        st.error("Column 'full_name' or 'player_name' not found in roster.")
-        return pd.DataFrame()
-    
-    # D. Merge Roster with Team Logos
-    #    Roster has 'team', Teams has 'team_abbr'
-    df = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
-    
-    # E. Select and Rename Columns
-    cols_to_keep = [name_col, 'team', 'position', 'headshot_url', 'team_logo_espn', 'birth_date']
-    df = df[cols_to_keep].rename(columns={
-        name_col: 'Player', 
-        'team_logo_espn': 'Team_Logo'
-    })
-    
-    # F. Fill missing images with fallbacks
-    df['headshot_url'] = df['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
-    df['Team_Logo'] = df['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
-    
-    return df
-
-def get_player_details(player_name, df_roster):
-    # 1. Filter the dataframe for the specific player
-    player_row = df_roster[df_roster['Player'] == player_name]
-    
-    if player_row.empty:
-        return None, None
-
-    # 2. Get the first match (in case of duplicates, usually takes active one)
-    data = player_row.iloc[0]
-    
-    # 3. Get Position
-    position = data['position']
-    
-    # 4. Calculate Age from birth_date
-    # nflreadpy provides 'birth_date' as a string (YYYY-MM-DD)
-    if pd.isna(data.get('birth_date')):
-        return None, position # Return position even if age is unknown
-
-    try:
-        b_date = pd.to_datetime(data['birth_date'])
+        b_date = pd.to_datetime(birth_date_str)
         today = datetime.now()
-        
-        # Calculate age: (Difference in days) / 365.25
-        age = int((today - b_date).days / 365.25)
-        
-        return age, position
+        return int((today - b_date).days / 365.25)
     except:
-        return None, position
+        return 25
 
-# Load the base data
-roster_df = load_data()
-model.train_model('data/complete.csv')
+@st.cache_data
+def load_and_predict():
+    # A. Initialize Model
+    predictor = FantasyPredictor()
+    predictor.train_model('complete.csv')
+
+    # B. Load NFL Roster (For Headshots & Logos)
+    try:
+        roster = nfl.load_rosters().to_pandas()
+        teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
+    except:
+        st.error("Error loading NFL data. Check internet connection.")
+        return pd.DataFrame()
+    
+    # Standardize Roster Columns
+    if 'full_name' in roster.columns: name_col = 'full_name'
+    elif 'player_name' in roster.columns: name_col = 'player_name'
+    else: return pd.DataFrame()
+
+    # Merge Roster + Team Logos
+    roster = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
+    
+    # Keep essential visual data
+    cols_keep = [name_col, 'team', 'position', 'headshot_url', 'team_logo_espn']
+    roster = roster[cols_keep].rename(columns={name_col: 'Player', 'team_logo_espn': 'Team_Logo'})
+    
+    # Fill missing visual data
+    roster['headshot_url'] = roster['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
+    roster['Team_Logo'] = roster['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
+
+    # C. Load YOUR 2025 CSV
+    try:
+        stats_df = pd.read_csv("2025.csv")
+    except FileNotFoundError:
+        st.error("⚠️ '2025.csv' not found. Please make sure the file is in the same folder.")
+        return pd.DataFrame()
+
+    # D. Merge Roster with 2025 Stats
+    # We merge on 'Player'. We use 'inner' to keep only players present in your CSV.
+    main_df = pd.merge(roster, stats_df, on='Player', how='inner')
+
+    # E. RUN PREDICTIONS
+    if not main_df.empty:
+        # 1. Use Age from CSV (or calculate if missing, but CSV has 'Age' column)
+        # Note: Your model needs 'Age' and 'position'.
+        # The CSV has 'Age' and 'FantPos' (Fantasy Position). The roster has 'position'.
+        # We will use the Roster 'position' for consistency with the visual card.
+        
+        # 2. Run the model row-by-row
+        # We pass: Player Name, Age (from CSV), Position (from Roster)
+        main_df['Predicted_FP'] = main_df.apply(
+            lambda row: predictor.predict(row['Player'], row['Age'], row['position']), 
+            axis=1
+        )
+
+    return main_df
+
+# Load the data
+main_df = load_and_predict()
+
+if not main_df.empty:
+    all_players_list = main_df['Player'].unique().tolist()
+else:
+    all_players_list = []
+
+# # 2. Load Real NFL Data (Roster + Team Logos)
+# @st.cache_data
+# def load_data():
+#     # A. Load Roster
+#     try:
+#         roster = nfl.load_rosters()
+#         roster = roster.to_pandas()
+#     except:
+#         st.error("Failed to load NFL roster data. Check internet connection.")
+#         return pd.DataFrame()
+
+#     # B. Load Team Data (for Logos)
+#     try:
+#         teams = nfl.load_teams()
+#         teams = teams.to_pandas()[['team_abbr', 'team_logo_espn']]
+#     except:
+#         st.error("Failed to load Team data.")
+#         return pd.DataFrame()
+    
+#     # C. Handle Column Name variations in nflreadpy
+#     if 'full_name' in roster.columns:
+#         name_col = 'full_name'
+#     elif 'player_name' in roster.columns:
+#         name_col = 'player_name'
+#     else:
+#         st.error("Column 'full_name' or 'player_name' not found in roster.")
+#         return pd.DataFrame()
+    
+#     # D. Merge Roster with Team Logos
+#     #    Roster has 'team', Teams has 'team_abbr'
+#     df = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
+    
+#     # E. Select and Rename Columns
+#     cols_to_keep = [name_col, 'team', 'position', 'headshot_url', 'team_logo_espn', 'birth_date']
+#     df = df[cols_to_keep].rename(columns={
+#         name_col: 'Player', 
+#         'team_logo_espn': 'Team_Logo'
+#     })
+    
+#     # F. Fill missing images with fallbacks
+#     df['headshot_url'] = df['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
+#     df['Team_Logo'] = df['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
+    
+#     return df
+
+# def get_player_details(player_name, df_roster):
+#     # 1. Filter the dataframe for the specific player
+#     player_row = df_roster[df_roster['Player'] == player_name]
+    
+#     if player_row.empty:
+#         return None, None
+
+#     # 2. Get the first match (in case of duplicates, usually takes active one)
+#     data = player_row.iloc[0]
+    
+#     # 3. Get Position
+#     position = data['position']
+    
+#     # 4. Calculate Age from birth_date
+#     # nflreadpy provides 'birth_date' as a string (YYYY-MM-DD)
+#     if pd.isna(data.get('birth_date')):
+#         return None, position # Return position even if age is unknown
+
+#     try:
+#         b_date = pd.to_datetime(data['birth_date'])
+#         today = datetime.now()
+        
+#         # Calculate age: (Difference in days) / 365.25
+#         age = int((today - b_date).days / 365.25)
+        
+#         return age, position
+#     except:
+#         return None, position
+
+# # Load the base data
+# roster_df = load_data()
+# model.train_model('data/complete.csv')
 
 # 3. Your Regression Model Output (Mock Data with Underscores!)
 model_data = {
