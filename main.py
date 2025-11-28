@@ -32,6 +32,7 @@ def add_background():
 add_background()
 
 # --- 3. DATA LOADING & PREDICTION PIPELINE ---
+# --- IMPROVED LOAD_AND_PREDICT ---
 @st.cache_data
 def load_and_predict():
     # A. Initialize Model
@@ -41,68 +42,78 @@ def load_and_predict():
     try:
         predictor.train_model('complete.csv') 
     except FileNotFoundError:
-        st.error("🚨 Error: 'complete.csv' not found. Model cannot train.")
-        # We continue just to show the UI, but predictions won't work well
+        st.error("🚨 Error: 'complete.csv' not found.")
+        st.stop()
     except Exception as e:
-        st.warning(f"Model training issue: {e}")
+        st.error(f"Error training model: {e}")
+        st.stop()
 
-    # --- STEP 2: LOAD CURRENT STATS (The Source of Truth) ---
+    # --- STEP 2: LOAD CURRENT STATS ---
     try:
         stats_df = pd.read_csv("2025.csv")
-        # Clean player names (strip whitespace)
+        # Ensure Player column is string and stripped of whitespace
         stats_df['Player'] = stats_df['Player'].astype(str).str.strip()
     except FileNotFoundError:
         st.error("🚨 Error: Could not find '2025.csv'.")
-        return pd.DataFrame()
+        st.stop()
 
-    # --- STEP 3: LOAD NFL ROSTER (For Images) ---
-    roster_loaded = False
+    # --- STEP 3: LOAD NFL ROSTER ---
     try:
-        # Try loading 2024 and 2025 to be safe
-        roster = nfl.load_rosters(years=[2024, 2025]).to_pandas()
-        
+        # Load from the uploaded roster.csv if available locally, else use nflreadpy
+        # You uploaded a file named 'roster.csv', so let's try to use that first for consistency
+        try:
+            roster = pd.read_csv("roster.csv")
+            # If it lacks team logos, we might need to fetch them or merge them if you have a separate file
+            # But let's assume for now we use nflreadpy for the rich data if your local csv is just names
+            # Actually, looking at your file upload, it seems your roster.csv has the data we need.
+        except:
+             # Fallback to nflreadpy if local file fails
+            roster = nfl.load_rosters().to_pandas()
+            teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
+            roster = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
+
         # Standardize Columns
         if 'full_name' in roster.columns: name_col = 'full_name'
         elif 'player_name' in roster.columns: name_col = 'player_name'
-        else: name_col = None
+        else: name_col = 'Player' # Default to 'Player' if it exists
 
-        if name_col:
-            # Prepare Roster for Merge
-            teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
-            roster = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
-            cols_keep = [name_col, 'team', 'position', 'headshot_url', 'team_logo_espn']
-            roster = roster[cols_keep].rename(columns={name_col: 'Player', 'team_logo_espn': 'Team_Logo'})
-            roster['Player'] = roster['Player'].astype(str).str.strip()
-            roster_loaded = True
+        # Rename to 'Player' for merging
+        roster = roster.rename(columns={name_col: 'Player'})
+        
+        # Keep essential visual data (Check if columns exist first)
+        cols_to_keep = ['Player', 'team', 'position', 'headshot_url', 'Team_Logo']
+        # Filter for only columns that actually exist in the dataframe
+        cols_to_keep = [c for c in cols_to_keep if c in roster.columns]
+        roster = roster[cols_to_keep]
+
+        # Fill missing visual data
+        if 'headshot_url' in roster.columns:
+            roster['headshot_url'] = roster['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
+        if 'Team_Logo' in roster.columns:
+            roster['Team_Logo'] = roster['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
+
     except Exception as e:
         print(f"Roster load failed: {e}")
-        roster_loaded = False
+        return pd.DataFrame()
 
-    # --- STEP 4: MERGE OR FALLBACK ---
-    if roster_loaded:
-        # Try merging
-        main_df = pd.merge(roster, stats_df, on='Player', how='inner')
-        
-        # DEBUG: If merge lost all players, fallback to stats_df
-        if main_df.empty:
-            st.toast("⚠️ Roster merge returned 0 players. Switching to CSV data only.", icon="⚠️")
-            main_df = stats_df.copy()
-            # Add dummy visual columns since merge failed
-            main_df['headshot_url'] = None
-            main_df['Team_Logo'] = None
-            main_df['team'] = main_df['Tm'] if 'Tm' in main_df.columns else "N/A"
-            main_df['position'] = main_df['FantPos'] if 'FantPos' in main_df.columns else "UNK"
-    else:
-        # Fallback if internet/roster failed completely
-        main_df = stats_df.copy()
-        main_df['headshot_url'] = None
-        main_df['Team_Logo'] = None
-        main_df['team'] = main_df['Tm'] if 'Tm' in main_df.columns else "N/A"
-        main_df['position'] = main_df['FantPos'] if 'FantPos' in main_df.columns else "UNK"
+    # --- STEP 4: CLEAN NAMES FOR MERGE (The Fix) ---
+    def clean_name(name):
+        # Remove common suffixes and punctuation
+        name = name.lower().replace('.', '').replace("'", "")
+        name = name.replace(' jr', '').replace(' sr', '').replace(' iii', '').replace(' ii', '')
+        return name.strip()
 
-    # Fill Fallback Images
-    main_df['headshot_url'] = main_df['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
-    main_df['Team_Logo'] = main_df['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
+    # Create temporary 'clean_name' column in both DFs
+    stats_df['clean_name'] = stats_df['Player'].apply(clean_name)
+    roster['clean_name'] = roster['Player'].apply(clean_name)
+
+    # Merge on the CLEAN name, but keep the original 'Player' name from the Stats file
+    # We use suffix to avoid column collision
+    main_df = pd.merge(roster, stats_df, on='clean_name', how='inner', suffixes=('_roster', ''))
+    
+    # If the merge creates Player_roster and Player, drop the roster version and keep the stats version
+    if 'Player_roster' in main_df.columns:
+        main_df = main_df.drop(columns=['Player_roster'])
 
     # --- STEP 5: ROBUST PREDICTION ---
     if not main_df.empty:
@@ -128,6 +139,10 @@ def load_and_predict():
 
         main_df['Predicted_FP'] = main_df.apply(safe_predict, axis=1)
         main_df = main_df.dropna(subset=['Predicted_FP'])
+        
+        # Clean up temporary column
+        if 'clean_name' in main_df.columns:
+            main_df = main_df.drop(columns=['clean_name'])
 
     return main_df
 
