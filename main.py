@@ -52,25 +52,32 @@ def calculate_age(birth_date_str):
 def load_and_predict():
     # A. Initialize Model
     predictor = FantasyPredictor()
-    predictor.train_model('complete.csv')
 
-    # B. Load NFL Roster (For Headshots & Logos)
+    # --- STEP 1: TRAIN THE MODEL ---
+    try:
+        # We use complete.csv as you confirmed it has all history + 2025
+        predictor.train_model('complete.csv') 
+    except FileNotFoundError:
+        st.error("🚨 Error: Could not find 'complete.csv'.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error training model: {e}")
+        st.stop()
+
+    # B. Load NFL Roster
     try:
         roster = nfl.load_rosters().to_pandas()
         teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
     except:
-        st.error("Error loading NFL data. Check internet connection.")
-        return pd.DataFrame()
-    
-    # Standardize Roster Columns
+        return pd.DataFrame() 
+
+    # Standardize Roster
     if 'full_name' in roster.columns: name_col = 'full_name'
     elif 'player_name' in roster.columns: name_col = 'player_name'
     else: return pd.DataFrame()
 
     # Merge Roster + Team Logos
     roster = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
-    
-    # Keep essential visual data
     cols_keep = [name_col, 'team', 'position', 'headshot_url', 'team_logo_espn']
     roster = roster[cols_keep].rename(columns={name_col: 'Player', 'team_logo_espn': 'Team_Logo'})
     
@@ -78,30 +85,50 @@ def load_and_predict():
     roster['headshot_url'] = roster['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
     roster['Team_Logo'] = roster['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
 
-    # C. Load YOUR 2025 CSV
+    # --- STEP 2: LOAD CURRENT STATS ---
     try:
         stats_df = pd.read_csv("2025.csv")
     except FileNotFoundError:
-        st.error("⚠️ '2025.csv' not found. Please make sure the file is in the same folder.")
-        return pd.DataFrame()
+        st.error("🚨 Error: Could not find '2025.csv'.")
+        st.stop()
 
-    # D. Merge Roster with 2025 Stats
-    # We merge on 'Player'. We use 'inner' to keep only players present in your CSV.
+    # C. Merge Roster with 2025 Stats
+    # Inner join ensures we only look at players we have stats for
     main_df = pd.merge(roster, stats_df, on='Player', how='inner')
 
-    # E. RUN PREDICTIONS
+    # --- D. ROBUST PREDICTION LOOP (The Fix) ---
     if not main_df.empty:
-        # 1. Use Age from CSV (or calculate if missing, but CSV has 'Age' column)
-        # Note: Your model needs 'Age' and 'position'.
-        # The CSV has 'Age' and 'FantPos' (Fantasy Position). The roster has 'position'.
-        # We will use the Roster 'position' for consistency with the visual card.
         
-        # 2. Run the model row-by-row
-        # We pass: Player Name, Age (from CSV), Position (from Roster)
-        main_df['Predicted_FP'] = main_df.apply(
-            lambda row: predictor.predict(row['Player'], row['Age'], row['position']), 
-            axis=1
-        )
+        # Define a wrapper that catches errors row-by-row
+        def safe_predict(row):
+            try:
+                # 1. Force Age to Integer (Handle 24.0 or "24")
+                if pd.isna(row['Age']):
+                    age = 25 # Default fallback
+                else:
+                    age = int(float(row['Age']))
+                
+                # 2. Force Position to String (Handle NaNs)
+                # We use 'position' from roster. If that's missing, try 'FantPos' from CSV
+                if pd.notna(row.get('position')):
+                    pos = str(row['position'])
+                elif pd.notna(row.get('FantPos')):
+                    pos = str(row['FantPos'])
+                else:
+                    pos = 'UNK' # Unknown
+                
+                # 3. Call Model
+                return predictor.predict(row['Player'], age, pos)
+                
+            except Exception as e:
+                # If specific row fails, return NaN but DON'T crash app
+                return np.nan
+
+        # Apply the safe function
+        main_df['Predicted_FP'] = main_df.apply(safe_predict, axis=1)
+        
+        # Remove players where prediction failed (keeps the app clean)
+        main_df = main_df.dropna(subset=['Predicted_FP'])
 
     return main_df
 
