@@ -113,7 +113,7 @@ def get_player_details(player_name, df_roster):
 
 # Load the base data
 roster_df = load_data()
-
+model.train_model('data/complete.csv')
 
 # 3. Your Regression Model Output (Mock Data with Underscores!)
 model_data = {

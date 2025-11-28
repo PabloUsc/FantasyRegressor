@@ -11,7 +11,6 @@ class FantasyPredictor:
         self.pos_encoder = LabelEncoder()
         self.features = ['Player_ID', 'Age', 'Pos_ID']
         self.is_trained = False
-        train_model()
 
     def train_model(self, filename='complete.csv'):
         """
