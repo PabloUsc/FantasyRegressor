@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import nflreadpy as nfl
+import numpy as np
 from datetime import datetime
 import altair as alt
 from model import FantasyPredictor
@@ -130,7 +131,7 @@ def load_and_predict():
         # Remove players where prediction failed (keeps the app clean)
         main_df = main_df.dropna(subset=['Predicted_FP'])
 
-    return main_df
+    return main_df  
 
 # Load the data
 main_df = load_and_predict()
