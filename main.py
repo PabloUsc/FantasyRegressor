@@ -257,8 +257,9 @@ if st.button(f"Compare {len(selected_players)} Players", use_container_width=Tru
                 'color': colors[i]
             })
 
-        # Render 4 columns wide
-        stat_cols = st.columns(4) 
+        # --- UPDATED: 3 COLUMNS WIDE (Makes bars larger) ---
+        stat_cols = st.columns(3) 
+        
         for idx, (label, col_key) in enumerate(stats_map):
             # Calculate max (safely)
             vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
@@ -279,7 +280,8 @@ if st.button(f"Compare {len(selected_players)} Players", use_container_width=Tru
                     'color': d['color']
                 })
             
-            with stat_cols[idx % 4]:
+            # Use modulus 3 to cycle through the 3 columns
+            with stat_cols[idx % 3]:
                 draw_stat_group(label, draw_list, max_val)
 
         # --- B. DEEP DIVE CHART ---
