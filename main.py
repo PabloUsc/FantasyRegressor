@@ -137,12 +137,20 @@ def load_and_predict():
                 else:
                     pos = 'UNK'
                 
-                return predictor.predict(row['Player'], age, pos)
-            except:
+                # 3. Call Model - Corrected Method Name: predict_player
+                # returns None if player/pos combo not found in training data
+                result = predictor.predict_player(row['Player'], age, pos)
+                
+                if result is None:
+                    return np.nan
+                return result
+
+            except Exception as e:
+                # print(e) # Debugging
                 return np.nan
 
         main_df['Predicted_FP'] = main_df.apply(safe_predict, axis=1)
-        # Drop failures
+        # Drop failures (Rows where model returned None/NaN)
         main_df = main_df.dropna(subset=['Predicted_FP'])
         
         # Cleanup
