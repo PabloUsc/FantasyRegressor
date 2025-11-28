@@ -1,20 +1,19 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import nflreadpy as nfl
 import altair as alt
 
-# --- IMPORT YOUR MODEL ---
+# --- IMPORT MODEL ---
 try:
     from model import FantasyPredictor
 except ImportError:
-    st.error("Could not find 'model.py'. Please ensure it is in the same directory.")
+    st.error("🚨 Critical Error: 'model.py' not found. Please ensure it is in the same directory.")
     st.stop()
 
 # 1. Setup Page Config
 st.set_page_config(layout="wide", page_title="Fantasy Optimizer")
 
-# --- 2. CSS ---
+# --- 2. CSS STYLING ---
 def add_background():
     st.markdown("""
     <style>
@@ -26,110 +25,115 @@ def add_background():
     }
     [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    
+    /* Dropdown text fix */
+    div[data-baseweb="select"] > div {
+        background-color: #3b4252;
+        color: white;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 add_background()
 
-# --- 3. DATA LOADING & PREDICTION PIPELINE ---
-# --- IMPROVED LOAD_AND_PREDICT ---
+# --- 3. ROBUST DATA LOADING ---
 @st.cache_data
 def load_and_predict():
-    # A. Initialize Model
+    # A. Initialize and Train Model
     predictor = FantasyPredictor()
-
-    # --- STEP 1: TRAIN THE MODEL ---
     try:
-        predictor.train_model('complete.csv') 
+        predictor.train_model('complete.csv')
     except FileNotFoundError:
-        st.error("🚨 Error: 'complete.csv' not found.")
-        st.stop()
+        st.error("🚨 Error: 'complete.csv' missing. Model cannot train.")
+        # Proceeding strictly for UI debugging, though predictions will fail
     except Exception as e:
-        st.error(f"Error training model: {e}")
-        st.stop()
+        st.warning(f"Model Training Warning: {e}")
 
-    # --- STEP 2: LOAD CURRENT STATS ---
+    # B. Load 2025 Stats (The Source of Truth)
     try:
         stats_df = pd.read_csv("2025.csv")
-        # Ensure Player column is string and stripped of whitespace
+        # Ensure Player column exists and is string
         stats_df['Player'] = stats_df['Player'].astype(str).str.strip()
     except FileNotFoundError:
-        st.error("🚨 Error: Could not find '2025.csv'.")
-        st.stop()
-
-    # --- STEP 3: LOAD NFL ROSTER ---
-    try:
-        # Load from the uploaded roster.csv if available locally, else use nflreadpy
-        # You uploaded a file named 'roster.csv', so let's try to use that first for consistency
-        try:
-            roster = pd.read_csv("roster.csv")
-            # If it lacks team logos, we might need to fetch them or merge them if you have a separate file
-            # But let's assume for now we use nflreadpy for the rich data if your local csv is just names
-            # Actually, looking at your file upload, it seems your roster.csv has the data we need.
-        except:
-             # Fallback to nflreadpy if local file fails
-            roster = nfl.load_rosters().to_pandas()
-            teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
-            roster = pd.merge(roster, teams, left_on='team', right_on='team_abbr', how='left')
-
-        # Standardize Columns
-        if 'full_name' in roster.columns: name_col = 'full_name'
-        elif 'player_name' in roster.columns: name_col = 'player_name'
-        else: name_col = 'Player' # Default to 'Player' if it exists
-
-        # Rename to 'Player' for merging
-        roster = roster.rename(columns={name_col: 'Player'})
-        
-        # Keep essential visual data (Check if columns exist first)
-        cols_to_keep = ['Player', 'team', 'position', 'headshot_url', 'Team_Logo']
-        # Filter for only columns that actually exist in the dataframe
-        cols_to_keep = [c for c in cols_to_keep if c in roster.columns]
-        roster = roster[cols_to_keep]
-
-        # Fill missing visual data
-        if 'headshot_url' in roster.columns:
-            roster['headshot_url'] = roster['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
-        if 'Team_Logo' in roster.columns:
-            roster['Team_Logo'] = roster['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
-
-    except Exception as e:
-        print(f"Roster load failed: {e}")
+        st.error("🚨 Error: '2025.csv' not found. This file is required.")
         return pd.DataFrame()
 
-    # --- STEP 4: CLEAN NAMES FOR MERGE (The Fix) ---
-    def clean_name(name):
-        # Remove common suffixes and punctuation
-        name = name.lower().replace('.', '').replace("'", "")
-        name = name.replace(' jr', '').replace(' sr', '').replace(' iii', '').replace(' ii', '')
-        return name.strip()
+    # C. Load Roster (For Images only)
+    try:
+        # Try local CSV first
+        roster_df = pd.read_csv("roster.csv")
+    except FileNotFoundError:
+        # If local fails, try downloading (fallback)
+        try:
+            import nflreadpy as nfl
+            roster_df = nfl.load_rosters().to_pandas()
+            teams = nfl.load_teams().to_pandas()[['team_abbr', 'team_logo_espn']]
+            roster_df = pd.merge(roster_df, teams, left_on='team', right_on='team_abbr', how='left')
+            # Standardize column names from nflreadpy
+            name_col = 'full_name' if 'full_name' in roster_df.columns else 'player_name'
+            roster_df = roster_df.rename(columns={name_col: 'Player', 'team_logo_espn': 'Team_Logo'})
+        except:
+            roster_df = pd.DataFrame() # Empty if everything fails
 
-    # Create temporary 'clean_name' column in both DFs
-    stats_df['clean_name'] = stats_df['Player'].apply(clean_name)
-    roster['clean_name'] = roster['Player'].apply(clean_name)
-
-    # Merge on the CLEAN name, but keep the original 'Player' name from the Stats file
-    # We use suffix to avoid column collision
-    main_df = pd.merge(roster, stats_df, on='clean_name', how='inner', suffixes=('_roster', ''))
+    # D. ADVANCED MERGING (Fixing the mismatches)
     
-    # If the merge creates Player_roster and Player, drop the roster version and keep the stats version
-    if 'Player_roster' in main_df.columns:
-        main_df = main_df.drop(columns=['Player_roster'])
+    # Helper to clean names for matching (removes 'Jr', '.', 'III')
+    def normalize_name(name):
+        n = str(name).lower()
+        n = n.replace('.', '').replace(',', '').replace("'", "")
+        n = n.replace(' jr', '').replace(' sr', '').replace(' iii', '').replace(' ii', '')
+        return n.strip()
 
-    # --- STEP 5: ROBUST PREDICTION ---
+    stats_df['clean_name'] = stats_df['Player'].apply(normalize_name)
+    
+    if not roster_df.empty:
+        # Rename roster columns to avoid collisions
+        # We expect roster to have: Player, team, position, headshot_url, Team_Logo
+        # Check specific columns exist
+        if 'Player' in roster_df.columns:
+            roster_df['clean_name'] = roster_df['Player'].apply(normalize_name)
+            
+            # Select only visual columns from roster
+            visual_cols = ['clean_name', 'headshot_url', 'Team_Logo', 'team']
+            # Only keep cols that actually exist
+            visual_cols = [c for c in visual_cols if c in roster_df.columns]
+            
+            roster_subset = roster_df[visual_cols]
+            
+            # --- CRITICAL FIX: LEFT JOIN ---
+            # We keep ALL players from stats_df (2025.csv), and attach images where possible.
+            main_df = pd.merge(stats_df, roster_subset, on='clean_name', how='left')
+        else:
+            main_df = stats_df.copy()
+    else:
+        main_df = stats_df.copy()
+
+    # E. FALLBACKS FOR VISUALS
+    # If no match found, fill with placeholders
+    if 'headshot_url' not in main_df.columns: main_df['headshot_url'] = None
+    if 'Team_Logo' not in main_df.columns: main_df['Team_Logo'] = None
+    if 'team' not in main_df.columns: 
+        # Fallback to 'Tm' from 2025.csv
+        main_df['team'] = main_df['Tm'] if 'Tm' in main_df.columns else "N/A"
+
+    main_df['headshot_url'] = main_df['headshot_url'].fillna("https://static.www.nfl.com/image/private/f_auto,q_auto/league/nfl-logo")
+    main_df['Team_Logo'] = main_df['Team_Logo'].fillna("https://a.espncdn.com/combiner/i?img=/i/teamlogos/nfl/500/nfl.png")
+
+    # F. PREDICTIONS
     if not main_df.empty:
         def safe_predict(row):
             try:
-                # Get Age
+                # 1. Get Age
                 if 'Age' in row and pd.notna(row['Age']):
                     age = int(float(row['Age']))
                 else:
-                    age = 25 
+                    age = 25
                 
-                # Get Position
-                if 'position' in row and pd.notna(row['position']):
-                    pos = str(row['position'])
-                elif 'FantPos' in row and pd.notna(row['FantPos']):
+                # 2. Get Position (Prefer 'FantPos' from 2025.csv as it's the stats source)
+                if 'FantPos' in row and pd.notna(row['FantPos']):
                     pos = str(row['FantPos'])
+                elif 'position' in row and pd.notna(row['position']):
+                    pos = str(row['position'])
                 else:
                     pos = 'UNK'
                 
@@ -138,30 +142,38 @@ def load_and_predict():
                 return np.nan
 
         main_df['Predicted_FP'] = main_df.apply(safe_predict, axis=1)
+        # Drop failures
         main_df = main_df.dropna(subset=['Predicted_FP'])
         
-        # Clean up temporary column
-        if 'clean_name' in main_df.columns:
-            main_df = main_df.drop(columns=['clean_name'])
+        # Cleanup
+        if 'clean_name' in main_df.columns: main_df = main_df.drop(columns=['clean_name'])
 
     return main_df
 
-# Load Data
+# --- LOAD DATA ---
 main_df = load_and_predict()
 
-# --- DEBUG INFO (Remove after fixing) ---
+# Check emptiness
 if main_df.empty:
-    st.error("❌ No players loaded! Please check '2025.csv' contains data.")
+    st.error("❌ No players loaded. Please check that '2025.csv' has valid data.")
     st.stop()
 
+# Sorting for dropdown
 all_players_list = sorted(main_df['Player'].unique().tolist())
 
-# --- 5. VISUALIZATION FUNCTIONS ---
+# --- 4. VISUALIZATION COMPONENTS ---
 
 def render_player_card(player_name):
     """Renders HTML card"""
-    p_data = main_df[main_df['Player'] == player_name].iloc[0]
-    card_html = f"""<div style="width: 100%; background-color: #3b4252; padding: 15px; border-radius: 10px; display: flex; align-items: center; margin-top: 10px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; font-family: sans-serif;"><img src="{p_data['headshot_url']}" style="width: 55px; height: 55px; border-radius: 50%; object-fit: cover; border: 2px solid #4c566a; margin-right: 15px;"><div style="flex-grow: 1;"><div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">{p_data['Player']}</div><div style="font-size: 13px; color: #d8dee9; display: flex; align-items: center;"><img src="{p_data['Team_Logo']}" style="width: 16px; height: 16px; margin-right: 6px;">{p_data['team']} &nbsp; <span style="color:#81a1c1;">|</span> &nbsp; {p_data['position']}</div></div></div>"""
+    # Safely get player row
+    df_p = main_df[main_df['Player'] == player_name]
+    if df_p.empty: return # Safety
+    p_data = df_p.iloc[0]
+    
+    # Get Position (Handle columns safely)
+    pos = p_data.get('FantPos', p_data.get('position', 'UNK'))
+    
+    card_html = f"""<div style="width: 100%; background-color: #3b4252; padding: 15px; border-radius: 10px; display: flex; align-items: center; margin-top: 10px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; font-family: sans-serif;"><img src="{p_data['headshot_url']}" style="width: 55px; height: 55px; border-radius: 50%; object-fit: cover; border: 2px solid #4c566a; margin-right: 15px;"><div style="flex-grow: 1;"><div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">{p_data['Player']}</div><div style="font-size: 13px; color: #d8dee9; display: flex; align-items: center;"><img src="{p_data['Team_Logo']}" style="width: 16px; height: 16px; margin-right: 6px;">{p_data['team']} &nbsp; <span style="color:#81a1c1;">|</span> &nbsp; {pos}</div></div></div>"""
     st.markdown(card_html, unsafe_allow_html=True)
 
 def draw_stat_group(stat_label, player_data_list, max_val):
@@ -175,13 +187,13 @@ def draw_stat_group(stat_label, player_data_list, max_val):
     html_content += '</div>'
     st.markdown(html_content, unsafe_allow_html=True)
 
-# --- 6. UI LAYOUT ---
+# --- 5. UI LAYOUT ---
 
 st.markdown("<h1 style='font-size: 2.2em; margin-bottom: 0px;'>Fantasy Start/Sit Optimizer</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color: #d8dee9;'>Select players to see their projection cards and compare stats.</p>", unsafe_allow_html=True)
 st.write("---")
 
-# Player Selection
+# Player Selection Columns
 st.markdown("<h3>Player Selection</h3>", unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 selected_players = []
@@ -212,19 +224,20 @@ colors = ["#88c0d0", "#bf616a", "#a3be8c"]
 if st.button(f"Compare {len(selected_players)} Players", use_container_width=True, type="primary"):
     if len(selected_players) > 0:
         
-        # --- A. VERSUS BARS ---
+        # --- A. HEAD-TO-HEAD BARS ---
         st.divider()
         st.markdown("<h3 style='text-align: center;'>Head-to-Head Stats</h3>", unsafe_allow_html=True)
         st.write("")
         
+        # MAP: (Label, 2025.csv Column Name)
         stats_map = [
-            ('Projected FP', 'Predicted_FP'), # From Model
-            ('Total TDs', 'ScorTD'),          # From CSV
-            ('Passing Yds', 'PassYds'),       # From CSV
-            ('Rushing Yds', 'RushYds'),       # From CSV
-            ('Completions', 'PassCmp'),       # From CSV
-            ('Receptions', 'Rec'),            # From CSV
-            ('Fumbles', 'Fmb')                # From CSV
+            ('Projected FP', 'Predicted_FP'),
+            ('Total TDs', 'ScorTD'),
+            ('Passing Yds', 'PassYds'),
+            ('Rushing Yds', 'RushYds'),
+            ('Completions', 'PassCmp'),
+            ('Receptions', 'Rec'),
+            ('Fumbles', 'Fmb')
         ]
         
         comparison_data = []
@@ -236,10 +249,13 @@ if st.button(f"Compare {len(selected_players)} Players", use_container_width=Tru
                 'color': colors[i]
             })
 
+        # Render 4 columns wide
         stat_cols = st.columns(4) 
-        
         for idx, (label, col_key) in enumerate(stats_map):
-            max_val = max((d['row_data'].get(col_key, 0) for d in comparison_data), default=1)
+            # Calculate max (safely)
+            vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
+            vals = [0 if pd.isna(v) else v for v in vals]
+            max_val = max(vals, default=1)
             if max_val == 0: max_val = 1
             
             draw_list = []
@@ -258,8 +274,7 @@ if st.button(f"Compare {len(selected_players)} Players", use_container_width=Tru
             with stat_cols[idx % 4]:
                 draw_stat_group(label, draw_list, max_val)
 
-        
-        # --- B. STATISTICAL DEEP DIVE (Chart) ---
+        # --- B. DEEP DIVE CHART ---
         st.divider()
         st.subheader("Statistical Deep Dive")
         
@@ -272,25 +287,16 @@ if st.button(f"Compare {len(selected_players)} Players", use_container_width=Tru
             y=alt.Y('Predicted_FP', title='Projected Points'),
             color=alt.Color('Player', scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())), legend=alt.Legend(title="Player")),
             tooltip=['Player', 'Predicted_FP', 'PassYds', 'ScorTD']
-        ).properties(
-            height=400
-        ).configure_axis(
-            grid=False
-        ).configure_view(
-            strokeWidth=0
-        )
+        ).properties(height=400).configure_axis(grid=False).configure_view(strokeWidth=0)
         
         st.altair_chart(chart, use_container_width=True)
         
+        # Table of Details
         st.caption("Detailed Projections")
-        # Ensure cols exist before showing
         possible_cols = ['Predicted_FP', 'PassYds', 'RushYds', 'ScorTD', 'PassCmp', 'Rec', 'Fmb']
         final_cols = [c for c in possible_cols if c in comp_df.columns]
         
-        st.dataframe(
-            comp_df.set_index('Player')[final_cols], 
-            use_container_width=True
-        )
+        st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
         
     else:
         st.warning("Please select at least one player above.")
