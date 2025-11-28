@@ -149,12 +149,6 @@ st.markdown("<p style='color: #d8dee9;'>Select players to see their projection c
 st.write("---")
 
 # How many players?
-c_start, _ = st.columns([1, 3]) 
-with c_start:
-    st.markdown("<h4 style='margin-bottom: 5px;'>How many players are you starting?</h4>", unsafe_allow_html=True)
-    st.selectbox("Num Players", ["1 Player", "2 Players", "3 Players"], label_visibility="collapsed")
-
-st.write("") 
 
 # Player Selection
 st.markdown("<h3>Player Selection</h3>", unsafe_allow_html=True)
