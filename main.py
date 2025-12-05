@@ -36,10 +36,15 @@ def add_background():
 
 add_background()
 
+# Winner glow states
 if 'winner_name' not in st.session_state:
     st.session_state.winner_name = None
 if 'glow_active' not in st.session_state:
     st.session_state.glow_active = False
+
+def reset_results():
+    st.session_state.glow_active = False
+    st.session_state.winner_name = None
 
 # --- 3. ROBUST DATA LOADING ---
 @st.cache_data
@@ -168,7 +173,7 @@ main_df = load_and_predict()
 
 # Check emptiness
 if main_df.empty:
-    st.error("❌ No players loaded. Please check that '2025.csv' has valid data.")
+    st.error("❌ No players loaded. Please check the data with the server.")
     st.stop()
 
 # Sorting for dropdown
@@ -182,11 +187,20 @@ def render_player_card(player_name):
     df_p = main_df[main_df['Player'] == player_name]
     if df_p.empty: return # Safety
     p_data = df_p.iloc[0]
+    pos = p_data.get('FantPos', 'UNK')
+    
+    extra_style = ""
+    WINNER_COLOR = "#a3be8c" 
+    
+    # Check if GLOW is active AND this player is the winner
+    if st.session_state.glow_active and player_name == st.session_state.winner_name:
+        extra_style = f"box-shadow: 0 0 10px {WINNER_COLOR}, 0 0 3px {WINNER_COLOR}; border: 2px solid {WINNER_COLOR};"
     
     # Get Position (Handle columns safely)
-    pos = p_data.get('FantPos', p_data.get('position', 'UNK'))
+    #pos = p_data.get('FantPos', p_data.get('position', 'UNK'))
     
-    card_html = f"""<div style="width: 100%; background-color: #3b4252; padding: 15px; border-radius: 10px; display: flex; align-items: center; margin-top: 10px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; font-family: sans-serif;"><img src="{p_data['headshot_url']}" style="width: 55px; height: 55px; border-radius: 50%; object-fit: cover; border: 2px solid #4c566a; margin-right: 15px;"><div style="flex-grow: 1;"><div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">{p_data['Player']}</div><div style="font-size: 13px; color: #d8dee9; display: flex; align-items: center;"><img src="{p_data['Team_Logo']}" style="width: 16px; height: 16px; margin-right: 6px;">{p_data['team']} &nbsp; <span style="color:#81a1c1;">|</span> &nbsp; {pos}</div></div></div>"""
+    #card_html = f"""<div style="width: 100%; background-color: #3b4252; padding: 15px; border-radius: 10px; display: flex; align-items: center; margin-top: 10px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; font-family: sans-serif;"><img src="{p_data['headshot_url']}" style="width: 55px; height: 55px; border-radius: 50%; object-fit: cover; border: 2px solid #4c566a; margin-right: 15px;"><div style="flex-grow: 1;"><div style="font-weight: 600; font-size: 16px; margin-bottom: 4px;">{p_data['Player']}</div><div style="font-size: 13px; color: #d8dee9; display: flex; align-items: center;"><img src="{p_data['Team_Logo']}" style="width: 16px; height: 16px; margin-right: 6px;">{p_data['team']} &nbsp; <span style="color:#81a1c1;">|</span> &nbsp; {pos}</div></div></div>"""
+    card_html = f"""<div style="width: 100%; background-color: #3b4252; padding: 15px; border-radius: 10px; display: flex; align-items: center; margin-top: 10px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; font-family: sans-serif; {extra_style}"><img src="{p_data['headshot_url']}" style="width: 55px; height: 55px; border-radius: 50%; object-fit: cover; border: 2px solid #4c566a; margin-right: 15px;"><div style="flex-grow: 1;"><div style="font-weight: 600; font-size: 18px; margin-bottom: 4px;">{p_data['Player']}</div><div style="font-size: 15px; color: #d8dee9; display: flex; align-items: center;"><img src="{p_data['Team_Logo']}" style="width: 16px; height: 16px; margin-right: 6px;">{p_data['team']} &nbsp; <span style="color:#81a1c1;">|</span> &nbsp; {pos}</div></div></div>"""
     st.markdown(card_html, unsafe_allow_html=True)
 
 def draw_stat_group(stat_label, player_data_list, max_val):
@@ -330,84 +344,3 @@ if st.session_state.glow_active:
     final_cols = [c for c in possible_cols if c in comp_df.columns]
     st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
 
-# if st.button(f"Compare {len(selected_players)} Players", use_container_width=True, type="primary"):
-#     if len(selected_players) > 0:
-        
-#         # --- A. HEAD-TO-HEAD BARS ---
-#         st.divider()
-#         st.markdown("<h3 style='text-align: center;'>Head-to-Head Stats</h3>", unsafe_allow_html=True)
-#         st.write("")
-        
-#         # MAP: (Label, 2025.csv Column Name)
-#         stats_map = [
-#             ('Projected FP', 'Predicted_FP'),
-#             ('Total TDs', 'ScorTD'),
-#             ('Passing Yds', 'PassYds'),
-#             ('Rushing Yds', 'RushYds'),
-#             ('Completions', 'PassCmp'),
-#             ('Receptions', 'Rec'),
-#             ('Fumbles', 'Fmb')
-#         ]
-        
-#         comparison_data = []
-#         for i, p_name in enumerate(selected_players):
-#             p_row = main_df[main_df['Player'] == p_name].iloc[0]
-#             comparison_data.append({
-#                 'name': p_name,
-#                 'row_data': p_row,
-#                 'color': colors[i]
-#             })
-
-#         # --- UPDATED: 3 COLUMNS WIDE (Makes bars larger) ---
-#         stat_cols = st.columns(3) 
-        
-#         for idx, (label, col_key) in enumerate(stats_map):
-#             # Calculate max (safely)
-#             vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
-#             vals = [0 if pd.isna(v) else v for v in vals]
-#             max_val = max(vals, default=1)
-#             if max_val == 0: max_val = 1
-            
-#             draw_list = []
-#             for d in comparison_data:
-#                 val = d['row_data'].get(col_key, 0)
-#                 if pd.isna(val): val = 0
-                
-#                 formatted_val = int(val) if col_key != 'Predicted_FP' else round(val, 1)
-                
-#                 draw_list.append({
-#                     'name': d['name'],
-#                     'value': formatted_val,
-#                     'color': d['color']
-#                 })
-            
-#             # Use modulus 3 to cycle through the 3 columns
-#             with stat_cols[idx % 3]:
-#                 draw_stat_group(label, draw_list, max_val)
-
-#         # --- B. DEEP DIVE CHART ---
-#         st.divider()
-#         st.subheader("Statistical Deep Dive")
-        
-#         comp_df = main_df[main_df['Player'].isin(selected_players)].copy()
-        
-#         color_map = {player: colors[i] for i, player in enumerate(selected_players)}
-        
-#         chart = alt.Chart(comp_df).mark_bar().encode(
-#             x=alt.X('Player', axis=None),
-#             y=alt.Y('Predicted_FP', title='Projected Points'),
-#             color=alt.Color('Player', scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())), legend=alt.Legend(title="Player")),
-#             tooltip=['Player', 'Predicted_FP', 'PassYds', 'ScorTD']
-#         ).properties(height=400).configure_axis(grid=False).configure_view(strokeWidth=0)
-        
-#         st.altair_chart(chart, use_container_width=True)
-        
-#         # Table of Details
-#         st.caption("Detailed Projections")
-#         possible_cols = ['Predicted_FP', 'PassYds', 'RushYds', 'ScorTD', 'PassCmp', 'Rec', 'Fmb']
-#         final_cols = [c for c in possible_cols if c in comp_df.columns]
-        
-#         st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
-        
-#     else:
-#         st.warning("Please select at least one player above.")
