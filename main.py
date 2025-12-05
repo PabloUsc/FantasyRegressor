@@ -17,7 +17,7 @@ st.set_page_config(layout="wide", page_title="Fantasy Optimizer")
 def add_background():
     # Football SVG
     football_svg = """
-    <svg xmlns='http://www.w3.org/2000/svg' width='60' height='30' viewBox='0 0 120 60'>
+    <svg xmlns='http://www.w3.org/2000/svg' width='40' height='20' viewBox='0 0 200 100'>
         <path fill='#3b4252' d='M60 5 C 20 5 5 30 5 30 C 5 30 20 55 60 55 C 100 55 115 30 115 30 C 115 30 100 5 60 5 Z M 60 10 C 90 10 105 30 105 30 C 105 30 90 50 60 50 C 30 50 15 30 15 30 C 15 30 30 10 60 10 Z M 25 30 L 95 30 M 45 20 L 45 40 M 60 20 L 60 40 M 75 20 L 75 40' stroke='#4c566a' stroke-width='3' opacity='0.15'/>
     </svg>
     """
@@ -31,7 +31,7 @@ def add_background():
     [data-testid="stAppViewContainer"] {{
         background-color: #2e3440;
         background-image: url("data:image/svg+xml;base64,{b64}");
-        background-size: 70px 35px; /* Adjusted size for elongated shape */
+        background-size: 100px 50px; /* Increased size to space them out more */
         background-repeat: repeat;
     }}
     
