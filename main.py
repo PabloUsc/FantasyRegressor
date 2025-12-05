@@ -36,6 +36,11 @@ def add_background():
 
 add_background()
 
+if 'winner_name' not in st.session_state:
+    st.session_state.winner_name = None
+if 'glow_active' not in st.session_state:
+    st.session_state.glow_active = False
+
 # --- 3. ROBUST DATA LOADING ---
 @st.cache_data
 def load_and_predict():
@@ -195,6 +200,37 @@ def draw_stat_group(stat_label, player_data_list, max_val):
     html_content += '</div>'
     st.markdown(html_content, unsafe_allow_html=True)
 
+def generate_analysis(comp_df):
+    # Sort by Predicted FP
+    sorted_df = comp_df.sort_values('Predicted_FP', ascending=False)
+    
+    if len(sorted_df) < 2: return ""
+    
+    winner = sorted_df.iloc[0]
+    runner_up = sorted_df.iloc[1]
+    
+    diff = winner['Predicted_FP'] - runner_up['Predicted_FP']
+    
+    # Identify Strengths (Simple logic: check basic stats)
+    strengths = []
+    if winner.get('ScorTD', 0) > runner_up.get('ScorTD', 0): strengths.append("higher touchdown potential")
+    if winner.get('PassYds', 0) > runner_up.get('PassYds', 0): strengths.append("better passing yardage")
+    if winner.get('RushYds', 0) > runner_up.get('RushYds', 0): strengths.append("superior rushing ability")
+    if winner.get('Rec', 0) > runner_up.get('Rec', 0): strengths.append("more reception volume")
+    
+    strength_text = ""
+    if strengths:
+        strength_text = f" This advantage is driven by {', '.join(strengths)}."
+        
+    analysis_html = f"""
+    <div class="analysis-box">
+        <div class="analysis-title">✨ Recommended Start: {winner['Player']}</div>
+        {winner['Player']} is projected to score <b>{winner['Predicted_FP']:.1f} points</b>, 
+        outperforming {runner_up['Player']} by <b>{diff:.1f} points</b>.{strength_text}
+    </div>
+    """
+    st.markdown(analysis_html, unsafe_allow_html=True)
+
 # --- 5. UI LAYOUT ---
 
 st.markdown("<h1 style='font-size: 2.2em; margin-bottom: 0px;'>Fantasy Start/Sit Optimizer</h1>", unsafe_allow_html=True)
@@ -231,82 +267,147 @@ colors = ["#88c0d0", "#bf616a", "#a3be8c"]
 
 if st.button(f"Compare {len(selected_players)} Players", use_container_width=True, type="primary"):
     if len(selected_players) > 0:
-        
-        # --- A. HEAD-TO-HEAD BARS ---
-        st.divider()
-        st.markdown("<h3 style='text-align: center;'>Head-to-Head Stats</h3>", unsafe_allow_html=True)
-        st.write("")
-        
-        # MAP: (Label, 2025.csv Column Name)
-        stats_map = [
-            ('Projected FP', 'Predicted_FP'),
-            ('Total TDs', 'ScorTD'),
-            ('Passing Yds', 'PassYds'),
-            ('Rushing Yds', 'RushYds'),
-            ('Completions', 'PassCmp'),
-            ('Receptions', 'Rec'),
-            ('Fumbles', 'Fmb')
-        ]
-        
-        comparison_data = []
-        for i, p_name in enumerate(selected_players):
-            p_row = main_df[main_df['Player'] == p_name].iloc[0]
-            comparison_data.append({
-                'name': p_name,
-                'row_data': p_row,
-                'color': colors[i]
-            })
-
-        # --- UPDATED: 3 COLUMNS WIDE (Makes bars larger) ---
-        stat_cols = st.columns(3) 
-        
-        for idx, (label, col_key) in enumerate(stats_map):
-            # Calculate max (safely)
-            vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
-            vals = [0 if pd.isna(v) else v for v in vals]
-            max_val = max(vals, default=1)
-            if max_val == 0: max_val = 1
-            
-            draw_list = []
-            for d in comparison_data:
-                val = d['row_data'].get(col_key, 0)
-                if pd.isna(val): val = 0
-                
-                formatted_val = int(val) if col_key != 'Predicted_FP' else round(val, 1)
-                
-                draw_list.append({
-                    'name': d['name'],
-                    'value': formatted_val,
-                    'color': d['color']
-                })
-            
-            # Use modulus 3 to cycle through the 3 columns
-            with stat_cols[idx % 3]:
-                draw_stat_group(label, draw_list, max_val)
-
-        # --- B. DEEP DIVE CHART ---
-        st.divider()
-        st.subheader("Statistical Deep Dive")
-        
         comp_df = main_df[main_df['Player'].isin(selected_players)].copy()
-        
-        color_map = {player: colors[i] for i, player in enumerate(selected_players)}
-        
-        chart = alt.Chart(comp_df).mark_bar().encode(
-            x=alt.X('Player', axis=None),
-            y=alt.Y('Predicted_FP', title='Projected Points'),
-            color=alt.Color('Player', scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())), legend=alt.Legend(title="Player")),
-            tooltip=['Player', 'Predicted_FP', 'PassYds', 'ScorTD']
-        ).properties(height=400).configure_axis(grid=False).configure_view(strokeWidth=0)
-        
-        st.altair_chart(chart, use_container_width=True)
-        
-        # Table of Details
-        st.caption("Detailed Projections")
-        possible_cols = ['Predicted_FP', 'PassYds', 'RushYds', 'ScorTD', 'PassCmp', 'Rec', 'Fmb']
-        final_cols = [c for c in possible_cols if c in comp_df.columns]
-        
-        st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
-        
+        winner_name = comp_df.loc[comp_df['Predicted_FP'].idxmax()]['Player']
+        st.session_state.winner_name = winner_name
+        st.session_state.glow_active = True
+        st.rerun() 
     else:
+        st.session_state.glow_active = False
         st.warning("Please select at least one player above.")
+
+if st.session_state.glow_active:
+    st.divider()
+    comp_df = main_df[main_df['Player'].isin(selected_players)].copy()
+    
+    generate_analysis(comp_df)
+    
+    st.markdown("<h3 style='text-align: center;'>Head-to-Head Stats</h3>", unsafe_allow_html=True)
+    st.write("")
+    
+    stats_map = [
+        ('Projected FP', 'Predicted_FP'), ('Total TDs', 'ScorTD'), ('Passing Yds', 'PassYds'), 
+        ('Rushing Yds', 'RushYds'), ('Completions', 'PassCmp'), ('Receptions', 'Rec'), 
+        ('Fumbles', 'Fmb')
+    ]
+    
+    comparison_data = []
+    for i, p_name in enumerate(selected_players):
+        p_row = comp_df[comp_df['Player'] == p_name].iloc[0]
+        comparison_data.append({'name': p_name, 'row_data': p_row, 'color': colors[i]})
+
+    stat_cols = st.columns(3) 
+    for idx, (label, col_key) in enumerate(stats_map):
+        vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
+        vals = [0 if pd.isna(v) else v for v in vals]
+        max_val = max(vals, default=1)
+        if max_val == 0: max_val = 1
+        
+        draw_list = []
+        for d in comparison_data:
+            val = d['row_data'].get(col_key, 0)
+            if pd.isna(val): val = 0
+            formatted_val = int(val) if col_key != 'Predicted_FP' else round(val, 1)
+            draw_list.append({'name': d['name'], 'value': formatted_val, 'color': d['color']})
+        
+        with stat_cols[idx % 3]:
+            draw_stat_group(label, draw_list, max_val)
+
+    st.divider()
+    st.subheader("Statistical Deep Dive")
+    color_map = {player: colors[i] for i, player in enumerate(selected_players)}
+    
+    chart = alt.Chart(comp_df).mark_bar().encode(
+        x=alt.X('Player', axis=None),
+        y=alt.Y('Predicted_FP', title='Projected Points'),
+        color=alt.Color('Player', scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())), legend=alt.Legend(title="Player")),
+        tooltip=['Player', 'Predicted_FP', 'PassYds', 'ScorTD']
+    ).properties(height=400).configure_axis(grid=False).configure_view(strokeWidth=0)
+    
+    st.altair_chart(chart, use_container_width=True)
+    
+    possible_cols = ['Predicted_FP', 'PassYds', 'RushYds', 'ScorTD', 'PassCmp', 'Rec', 'Fmb']
+    final_cols = [c for c in possible_cols if c in comp_df.columns]
+    st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
+
+# if st.button(f"Compare {len(selected_players)} Players", use_container_width=True, type="primary"):
+#     if len(selected_players) > 0:
+        
+#         # --- A. HEAD-TO-HEAD BARS ---
+#         st.divider()
+#         st.markdown("<h3 style='text-align: center;'>Head-to-Head Stats</h3>", unsafe_allow_html=True)
+#         st.write("")
+        
+#         # MAP: (Label, 2025.csv Column Name)
+#         stats_map = [
+#             ('Projected FP', 'Predicted_FP'),
+#             ('Total TDs', 'ScorTD'),
+#             ('Passing Yds', 'PassYds'),
+#             ('Rushing Yds', 'RushYds'),
+#             ('Completions', 'PassCmp'),
+#             ('Receptions', 'Rec'),
+#             ('Fumbles', 'Fmb')
+#         ]
+        
+#         comparison_data = []
+#         for i, p_name in enumerate(selected_players):
+#             p_row = main_df[main_df['Player'] == p_name].iloc[0]
+#             comparison_data.append({
+#                 'name': p_name,
+#                 'row_data': p_row,
+#                 'color': colors[i]
+#             })
+
+#         # --- UPDATED: 3 COLUMNS WIDE (Makes bars larger) ---
+#         stat_cols = st.columns(3) 
+        
+#         for idx, (label, col_key) in enumerate(stats_map):
+#             # Calculate max (safely)
+#             vals = [d['row_data'].get(col_key, 0) for d in comparison_data]
+#             vals = [0 if pd.isna(v) else v for v in vals]
+#             max_val = max(vals, default=1)
+#             if max_val == 0: max_val = 1
+            
+#             draw_list = []
+#             for d in comparison_data:
+#                 val = d['row_data'].get(col_key, 0)
+#                 if pd.isna(val): val = 0
+                
+#                 formatted_val = int(val) if col_key != 'Predicted_FP' else round(val, 1)
+                
+#                 draw_list.append({
+#                     'name': d['name'],
+#                     'value': formatted_val,
+#                     'color': d['color']
+#                 })
+            
+#             # Use modulus 3 to cycle through the 3 columns
+#             with stat_cols[idx % 3]:
+#                 draw_stat_group(label, draw_list, max_val)
+
+#         # --- B. DEEP DIVE CHART ---
+#         st.divider()
+#         st.subheader("Statistical Deep Dive")
+        
+#         comp_df = main_df[main_df['Player'].isin(selected_players)].copy()
+        
+#         color_map = {player: colors[i] for i, player in enumerate(selected_players)}
+        
+#         chart = alt.Chart(comp_df).mark_bar().encode(
+#             x=alt.X('Player', axis=None),
+#             y=alt.Y('Predicted_FP', title='Projected Points'),
+#             color=alt.Color('Player', scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())), legend=alt.Legend(title="Player")),
+#             tooltip=['Player', 'Predicted_FP', 'PassYds', 'ScorTD']
+#         ).properties(height=400).configure_axis(grid=False).configure_view(strokeWidth=0)
+        
+#         st.altair_chart(chart, use_container_width=True)
+        
+#         # Table of Details
+#         st.caption("Detailed Projections")
+#         possible_cols = ['Predicted_FP', 'PassYds', 'RushYds', 'ScorTD', 'PassCmp', 'Rec', 'Fmb']
+#         final_cols = [c for c in possible_cols if c in comp_df.columns]
+        
+#         st.dataframe(comp_df.set_index('Player')[final_cols], use_container_width=True)
+        
+#     else:
+#         st.warning("Please select at least one player above.")
