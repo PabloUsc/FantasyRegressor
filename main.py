@@ -260,7 +260,7 @@ def generate_analysis(comp_df):
             display: flex; 
             align-items: center;
         ">
-            ✨ AI Recommendation
+            ✨ Fantasy Recommendation
         </div>
         <div style="font-size: 16px; line-height: 1.5;">
             Start <b>{winner['Player']}</b>. He is projected to score 
