@@ -15,24 +15,74 @@ st.set_page_config(layout="wide", page_title="Fantasy Optimizer")
 
 # --- 2. CSS STYLING ---
 def add_background():
-    st.markdown("""
-    <style>
-    [data-testid="stAppViewContainer"] {
-        background-color: #2e3440;
-        background-image: radial-gradient(#434c5e 2px, transparent 2px), radial-gradient(#434c5e 2px, #2e3440 2px);
-        background-size: 30px 30px;
-        background-position: 0 0, 15px 15px;
-    }
-    [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    # We use an inline SVG for the football icon to create a wallpaper pattern
+    football_svg = """
+    <svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'>
+        <path fill='#3b4252' d='M50 10 C 20 10 10 40 10 50 C 10 80 40 90 50 90 C 80 90 90 60 90 50 C 90 20 60 10 50 10 Z M 50 15 C 75 15 85 45 85 50 C 85 75 55 85 50 85 C 25 85 15 55 15 50 C 15 25 45 15 50 15 Z M 20 50 L 80 50 M 35 35 L 35 65 M 50 35 L 50 65 M 65 35 L 65 65' stroke='#4c566a' stroke-width='3' opacity='0.15'/>
+    </svg>
+    """
+    # Convert SVG to Data URI
+    import base64
+    b64 = base64.b64encode(football_svg.encode('utf-8')).decode("utf-8")
     
-    /* Dropdown text fix */
-    div[data-baseweb="select"] > div {
+    st.markdown(f"""
+    <style>
+    /* Main Background - Slate Blue with Football Pattern */
+    [data-testid="stAppViewContainer"] {{
+        background-color: #2e3440;
+        background-image: url("data:image/svg+xml;base64,{b64}");
+        background-size: 50px 50px; /* Size of the pattern grid */
+        background-repeat: repeat;
+    }}
+    
+    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
+    .block-container {{ padding-top: 2rem; padding-bottom: 2rem; }}
+    
+    p {{ font-size: 1.05rem; }}
+    
+    /* Custom Dropdown Styling */
+    div[data-baseweb="select"] > div {{
         background-color: #3b4252;
         color: white;
-    }
+    }}
+
+    /* Analysis Box Style */
+    .analysis-box {{
+        background-color: #3b4252;
+        border-left: 5px solid #a3be8c;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        color: #e5e9f0;
+    }}
+    .analysis-title {{
+        font-weight: bold;
+        color: #a3be8c;
+        font-size: 1.1em;
+        margin-bottom: 5px;
+    }}
     </style>
     """, unsafe_allow_html=True)
+
+# def add_background():
+#     st.markdown("""
+#     <style>
+#     [data-testid="stAppViewContainer"] {
+#         background-color: #2e3440;
+#         background-image: radial-gradient(#434c5e 2px, transparent 2px), radial-gradient(#434c5e 2px, #2e3440 2px);
+#         background-size: 30px 30px;
+#         background-position: 0 0, 15px 15px;
+#     }
+#     [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
+#     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    
+#     /* Dropdown text fix */
+#     div[data-baseweb="select"] > div {
+#         background-color: #3b4252;
+#         color: white;
+#     }
+#     </style>
+#     """, unsafe_allow_html=True)
 
 add_background()
 
