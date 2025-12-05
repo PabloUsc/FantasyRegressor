@@ -234,13 +234,40 @@ def generate_analysis(comp_df):
     
     strength_text = ""
     if strengths:
-        strength_text = f" This advantage is driven by {', '.join(strengths)}."
+        # Join strengths with commas and "and"
+        if len(strengths) > 1:
+            strength_str = ", ".join(strengths[:-1]) + " and " + strengths[-1]
+        else:
+            strength_str = strengths[0]
+        strength_text = f" driven by <b>{strength_str}</b>."
         
     analysis_html = f"""
-    <div class="analysis-box">
-        <div class="analysis-title">✨ Recommended Start: {winner['Player']}</div>
-        {winner['Player']} is projected to score <b>{winner['Predicted_FP']:.1f} points</b>, 
-        outperforming {runner_up['Player']} by <b>{diff:.1f} points</b>.{strength_text}
+    <div style="
+        background-color: #3b4252; 
+        border-left: 6px solid #a3be8c; 
+        padding: 20px; 
+        border-radius: 8px; 
+        margin-bottom: 25px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        color: #e5e9f0;
+        font-family: sans-serif;
+    ">
+        <div style="
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #a3be8c; 
+            margin-bottom: 8px; 
+            display: flex; 
+            align-items: center;
+        ">
+            ✨ AI Recommendation
+        </div>
+        <div style="font-size: 16px; line-height: 1.5;">
+            Start <b>{winner['Player']}</b>. He is projected to score 
+            <span style="color: #fff; font-weight: bold;">{winner['Predicted_FP']:.1f} points</span>, 
+            outperforming {runner_up['Player']} by 
+            <span style="color: #a3be8c; font-weight: bold;">+{diff:.1f} points</span>{strength_text}
+        </div>
     </div>
     """
     st.markdown(analysis_html, unsafe_allow_html=True)
